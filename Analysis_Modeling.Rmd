@@ -1,0 +1,465 @@
+---
+title: "Modeling"
+author: "Leonor Brito"
+date: "2024-09-16"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# packages
+```{r}
+
+library(lavaan)
+library(blavaan)
+library(ggplot2)
+library(purrr)
+library(OpenMx)
+library(dplyr)
+
+```
+
+```{r}
+
+load("/Users/leonorbrito/Documents/Master/Thesis/Code/clean_df.RData")
+
+```
+
+Based on exploratory data analysis, a shorter list of variables was selected for data analysis and modeling.
+
+```{r}
+
+final_df <- clean_df[, c("year", "area", "cereal_yield", "irrgation_efficiency", "pesticides", "organic_ag", "enteric_fermentation", "manure_ch4", "farm_energy_n20", "gdp_capita", "employment_ratio", "temp_change", "percipitation", "floods", "nue", "kue", "pue")]
+
+save(final_df, file = "final_df.RData")
+
+```
+
+# Assumptions / Analysis
+
+## Correlation
+
+```{r}
+
+vars <- final_df[, 4:ncol(final_df)]
+
+corr_results <- rcorr(as.matrix(vars))
+
+# access the matrix of correlation coefficients
+cor_matrix <- corr_results$r
+
+custom_labels <- c(
+  "irrgation_efficiency" = "Irrigation Efficiency",
+  "pesticides" = "Pesticide Use",
+  "organic_ag" = "Organic Agriculture",
+  "enteric_fermentation" = "Enteric Fermentation",
+  "manure_ch4" = "Manure Management",
+  "farm_energy_n20" = "On-Farm Energy Use",
+  "gdp_capita" = "GDP per Capita",
+  "employment_ratio" = "Employment Ratio",
+  "temp_change" = "Temperature Change",
+  "percipitation" = "Precipitation",
+  "floods" = "Floods",
+  "nue" = "Nitrogen Use Efficiency",
+  "kue" = "Potassium Use Efficiency",
+  "pue" = "Phosphorus Use Efficiency"
+)
+
+# apply custom labels to correlation matrix
+colnames(cor_matrix) <- custom_labels[colnames(cor_matrix)]
+rownames(cor_matrix) <- custom_labels[rownames(cor_matrix)]
+
+# access the matrix of p-values
+p_matrix <- corr_results$P
+
+# visualize the correlation matrix
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.6, number.cex = 0.5, addCoef.col = "black")
+
+# save the correlation plot as a PNG file
+png("correlation.png", width = 1400, height = 600, res = 300)
+
+# generate the correlation plot
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.6, addCoef.col = NULL)
+
+# close
+dev.off()
+
+```
+
+## EFA
+
+```{r}
+
+# perform EFA with an initial guess of the number of factors
+initial_efa <- fa(vars, nfactors = 6, rotate = "varimax") 
+
+# get factor loadings and convert to a tidy format
+loadings_df <- as.data.frame(initial_efa$loadings[])
+loadings_df <- loadings_df %>%
+  rownames_to_column("Variable") %>%
+  pivot_longer(-Variable, names_to = "Factor", values_to = "Loading")
+
+# filter for the first two factors
+loadings_df_filtered <- loadings_df %>% filter(Factor %in% c("MR1", "MR2"))
+
+# customize variable names for x-axis labels
+loadings_df_filtered$Variable <- factor(loadings_df_filtered$Variable, levels = unique(loadings_df_filtered$Variable))
+
+# set the variable names as factors with the order from custom_labels
+loadings_df_filtered$Variable <- factor(loadings_df_filtered$Variable, levels = names(custom_labels), labels = custom_labels)
+
+# separate data for each factor and reorder variables by loading
+loadings_df_ordered <- loadings_df_filtered %>%
+  group_by(Factor) %>%
+  arrange(Factor, desc(Loading)) %>%
+  mutate(Variable = factor(Variable, levels = Variable)) %>%
+  ungroup()
+
+# add a new column for color
+loadings_df_plot <- loadings_df_ordered %>%
+  group_by(Factor) %>%
+  mutate(Color = ifelse(row_number() <= 3, "Top 3", "Others")) %>%
+  ungroup()
+
+# plot the factor loadings for the first two factors as horizontal bar graphs
+ggplot(loadings_df_plot, aes(x = Loading, y = Variable, fill = Color)) +
+  geom_bar(stat = "identity", position = position_dodge(), show.legend = FALSE) +
+  facet_wrap(~ Factor) +
+  labs(x = "Loading", y = NULL) + 
+  scale_fill_manual(values = c("Top 3" = "#1f78b4", "Others" = "gray")) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10, hjust = 1), 
+    axis.text.x = element_text(size = 10), 
+    axis.title.x = element_text(size = 12), 
+    panel.grid.major.x = element_line(color = "grey80"), 
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "none", 
+    strip.background = element_blank(), 
+    strip.text = element_text(size = 12, face = "bold") 
+  )
+
+ggsave("EFA.png", width = 14, height = 6, dpi = 300, bg = "white")
+
+```
+
+## Variable Transformations
+
+```{r}
+
+plot_transformations <- function(data_vector) {
+  # Create a data frame from the vector for easier manipulation
+  data_df <- data.frame(Value = data_vector)
+  
+  # Remove NA values for transformation and plotting
+  data_df <- data_df %>% filter(!is.na(Value))
+  
+  # Define transformations
+  transformations <- list(
+    "Original" = data_df$Value,
+    "Log" = log(data_df$Value),
+    "LogLog" = log(log(data_df$Value[data_df$Value > 1])),
+    "Square Root" = sqrt(data_df$Value),
+    "Cube Root" = data_df$Value^(1/3)
+  )
+  
+  # Plotting loop
+  par(mfrow = c(5, 2), mar = c(3, 3, 2, 1))  # Adjust margins and layout
+  for (trans_name in names(transformations)) {
+    # Histogram
+    hist_data <- transformations[[trans_name]]
+    hist_data <- hist_data[!is.infinite(hist_data) & !is.na(hist_data)]  # Remove Inf and NA values
+    
+    hist(hist_data, main = paste(trans_name, "Distribution"), xlab = trans_name, col = "blue", breaks = 30)
+    
+    # Boxplot
+    boxplot(hist_data, horizontal = TRUE, main = paste(trans_name, "Boxplot"), xlab = trans_name)
+  }
+}
+
+plot_transformations(final_df$pesticides)
+
+```
+
+Apply transformations
+```{r}
+
+# Log transformation
+final_df$log_manure <- ifelse(is.na(final_df$manure_ch4), NA, log(final_df$manure_ch4))
+final_df$log_pesticides <- ifelse(is.na(final_df$pesticides), NA, log(final_df$pesticides))
+final_df$log_farm_energy_n20 <- ifelse(is.na(final_df$farm_energy_n20), NA, log(final_df$farm_energy_n20))
+
+# Square root transformation
+final_df$sqrt_enteric <- ifelse(is.na(final_df$enteric_fermentation), NA, sqrt(final_df$enteric_fermentation))
+final_df$sqrt_employment <- ifelse(is.na(final_df$employment_ratio), NA, sqrt(final_df$employment_ratio))
+final_df$sqrt_gdp_capita <- ifelse(is.na(final_df$gdp_capita), NA, sqrt(final_df$gdp_capita))
+final_df$sqrt_irrigation <- ifelse(is.na(final_df$irrgation_efficiency), NA, sqrt(final_df$irrgation_efficiency))
+final_df$sqrt_organic <- ifelse(is.na(final_df$organic_ag), NA, sqrt(final_df$organic_ag))
+
+
+```
+
+Save df with variable transformations
+```{r}
+
+transformed_df <- final_df
+save(transformed_df, file = "transformed_df.RData")
+
+```
+
+
+# Scaling
+```{r}
+
+data_sem <- final_df[, !(names(final_df) %in% c("Country.Group.Code", "Country.Group", "gdp_category"))]
+country_data <- data_sem[,c("area"), drop = FALSE]
+data_to_scale <- data_sem[, !(names(data_sem) %in% c("area"))]
+data_scaled <- as.data.frame(lapply(data_to_scale, scale))
+
+data_for_sem <- cbind(data_scaled, country_data)
+
+```
+
+# CFA
+
+```{r}
+
+cfa <- '
+
+  NutrientUseEfficiency =~ nue + pue + kue
+  AgriculturalEmissions =~ log_manure + sqrt_enteric + log_farm_energy_n20
+  
+'
+
+# fit cfa model and output summary
+fit_cfa <- sem(cfa, data = data_for_sem, cluster = 'area', missing = "FIML", estimator = "MLR")
+summary(fit_cfa, fit.measures=TRUE)
+
+```
+
+
+# Baseline SEM Structure
+```{r}
+
+baseline_model <- '
+
+  # Measurement Model
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  AgriculturalEmissions =~ 1*log_manure + sqrt_enteric
+  
+  # Structural Model
+  # Direct effects
+  cereal_yield ~ b1*NutrientUseEfficiency + b2*log_pesticides + b3*percipitation + b4*AgriculturalEmissions + b5*temp_change + b6*sqrt_gdp_capita + b7*sqrt_irrigation + b8*employment_ratio + b9*sqrt_organic
+  
+  # Mediator path
+  NutrientUseEfficiency ~ m1*log_pesticides + m2*floods + m3*percipitation + m4*sqrt_organic 
+  
+  # Indirect effects through mediated path
+  indirect_log_pesticides := m1 * b1
+  indirect_floods := m2 * b1
+  indirect_percipitation := m3 * b1
+  indirect_sqrt_organic := m4 * b1
+  
+
+  # Total effects through mediated path
+  total_effect_log_pesticides := b2 + indirect_log_pesticides
+  total_effect_floods := indirect_floods
+  total_effect_percipitation := b3 + indirect_percipitation
+  total_effect_sqrt_organic := b9 + indirect_sqrt_organic
+
+'
+
+# fit model and output summary
+fit_baseline_model <- sem(baseline_model, data = data_for_sem, cluster = 'area', missing = "FIML", estimator = "MLR")
+summary(fit_baseline_model, fit.measures=TRUE)
+
+```
+
+# Modeling with time
+
+## Adding year as variable
+```{r}
+
+model_with_year <- '
+
+  # Measurement Model
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  AgriculturalEmissions =~ 1*log_manure + sqrt_enteric + log_farm_energy_n20
+  
+  # Structural Model
+  # Direct effects
+  cereal_yield ~ b1*NutrientUseEfficiency + b2*log_pesticides + b3*percipitation + b4*AgriculturalEmissions + b5*temp_change + b6*sqrt_gdp_capita + b7*sqrt_irrigation + b8*employment_ratio + b9*sqrt_organic + b10*year
+  
+  # Mediator path
+  NutrientUseEfficiency ~ m1*log_pesticides + m2*floods + m3*percipitation + m4*sqrt_organic
+  
+  # Indirect effects through mediated path
+  indirect_log_pesticides := m1 * b1
+  indirect_floods := m2 * b1
+  indirect_percipitation := m3 * b1
+  indirect_sqrt_organic := m4 * b1
+
+  # Total effects through mediated path
+  total_effect_log_pesticides := b2 + indirect_log_pesticides
+  total_effect_floods := indirect_floods
+  total_effect_percipitation := b3 + indirect_percipitation
+  total_effect_sqrt_organic := b9 + indirect_sqrt_organic
+
+'
+
+# fit model and output summary
+fit_model_year <- sem(model_with_year, data = data_for_sem, cluster = 'area', missing = "fiml", estimator = "MLR")
+summary(fit_model_year, fit.measures=TRUE)
+
+```
+
+
+## Residuals from time series
+
+Arima time series
+```{r}
+
+# fit ARIMA time series on cereal yield
+arima_model <- auto.arima(final_df$cereal_yield, xreg = final_df$year)
+
+# calculate and store residuals
+data_for_sem$cereal_yield_arima <- residuals(arima_model)
+
+# scale residuals
+data_for_sem$cereal_yield_arima <- scale(data_for_sem$cereal_yield_arima)
+
+```
+
+```{r}
+
+# plot residuals for the time series model
+ggplot(data_for_sem, aes(x = year, y = cereal_yield_arima)) +
+  geom_point() +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(title = "",
+       x = "Year",
+       y = "Residuals") +
+  theme_minimal()
+
+ggsave("arima.png", width = 14, height = 6, dpi = 300, bg = "white")
+
+```
+
+
+re-fit with residuals from time series
+```{r}
+
+model_arima <- '
+
+  # Measurement Model
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  AgriculturalEmissions =~ 1*log_manure + sqrt_enteric + log_farm_energy_n20
+  
+  # Structural Model
+  # Direct effects
+  cereal_yield_arima ~ b1*NutrientUseEfficiency + b2*log_pesticides + b3*percipitation + b4*AgriculturalEmissions + b5*temp_change + b6*sqrt_gdp_capita + b7*sqrt_irrigation + b8*employment_ratio + b9*sqrt_organic
+  
+  # Mediator path
+  NutrientUseEfficiency ~ m1*log_pesticides + m2*floods + m3*percipitation + m4*sqrt_organic 
+  
+  # Indirect effects through mediated path
+  indirect_log_pesticides := m1 * b1
+  indirect_floods := m2 * b1
+  indirect_percipitation := m3 * b1
+  indirect_sqrt_organic := m4 * b1
+  
+
+  # Total effects through mediated path
+  total_effect_log_pesticides := b2 + indirect_log_pesticides
+  total_effect_floods := indirect_floods
+  total_effect_percipitation := b3 + indirect_percipitation
+  total_effect_sqrt_organic := b9 + indirect_sqrt_organic
+
+'
+# fit model and output summary
+fit_model_arima <- sem(model_arima, data = data_for_sem, cluster = 'area', missing = "fiml", estimator='MLR')
+summary(fit_model_arima, fit.measures=TRUE)
+
+```
+
+## Residuals from linear regression
+
+regression on year
+```{r}
+
+# regress yield on year
+model_year <- lm(cereal_yield ~ year, data = final_df)
+
+# calculate and store residuals
+data_for_sem$cereal_yield_res <- resid(model_year)
+
+#scale residuals
+data_for_sem$cereal_yield_res <- scale(data_for_sem$cereal_yield_res)
+
+```
+
+```{r}
+
+# plot residuals for the time series model
+ggplot(data_for_sem, aes(x = year, y = cereal_yield_res)) +
+  geom_point() +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(title = "",
+       x = "Year",
+       y = "Residuals") +
+  theme_minimal()
+
+ggsave("linear_reg.png", width = 14, height = 6, dpi = 300, bg = "white")
+
+```
+
+
+re-fit with residuals from regression on year
+```{r}
+
+model_linear_reg <- '
+
+  # Measurement Model
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  AgriculturalEmissions =~ 1*log_manure + sqrt_enteric + log_farm_energy_n20
+  
+  # Structural Model
+  # Direct effects
+  cereal_yield_res ~ b1*NutrientUseEfficiency + b2*log_pesticides + b3*percipitation + b4*AgriculturalEmissions + b5*temp_change + b6*sqrt_gdp_capita + b7*sqrt_irrigation + b8*employment_ratio + b9*sqrt_organic
+  
+  # Mediator path
+  NutrientUseEfficiency ~ m1*log_pesticides + m2*floods + m3*percipitation + m4*sqrt_organic 
+  
+  # Indirect effects through mediated path
+  indirect_log_pesticides := m1 * b1
+  indirect_floods := m2 * b1
+  indirect_percipitation := m3 * b1
+  indirect_sqrt_organic := m4 * b1
+  
+
+  # Total effects through mediated path
+  total_effect_log_pesticides := b2 + indirect_log_pesticides
+  total_effect_floods := indirect_floods
+  total_effect_percipitation := b3 + indirect_percipitation
+  total_effect_sqrt_organic := b9 + indirect_sqrt_organic
+
+'
+
+# fit model and output summary
+fit_model_reg <- sem(model_linear_reg, data = data_for_sem, cluster = 'area', missing = "fiml", estimator='MLR')
+summary(fit_model_reg, fit.measures=TRUE)
+
+```
+
+Likelihood Ratio Test (LRT) to compare multiple SEM models
+```{r}
+
+comparison <- lavTestLRT(fit_baseline_model, fit_model_arima, fit_model_reg, fit_model_year)
+print(comparison)
+
+```

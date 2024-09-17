@@ -1,0 +1,445 @@
+---
+title: "Visualizations"
+author: "Leonor Brito"
+date: "2024-09-16"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# packages
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(sf)
+library(rnaturalearth)
+library(knitr)
+library(kableExtra)
+library(reshape2)
+
+```
+
+
+# Import data
+
+Function to change from long to wide format
+```{r}
+
+long_to_wide <- function(data) {
+  wide_data <- pivot_wider(data, 
+                           names_from = Item, 
+                           values_from = Value, 
+                           id_cols = c(Area, Year))
+  return(wide_data)
+}
+
+```
+
+All datasets below were sourced from FAOSTAT (https://www.fao.org/faostat/en/#data).
+```{r}
+
+setwd("/Users/leonorbrito/Documents/Master/Thesis/Datasets/Visuals")
+area_prod <- read.csv('prod_area.csv')
+
+area_prod <- select(area_prod, -Item)
+area_prod <- area_prod %>%
+  rename(Item = Element)
+area_prod_wide <- long_to_wide(area_prod)
+
+yield_prod <- read.csv('yield_prod.csv')
+
+yield_prod <- select(yield_prod, -Item)
+yield_prod <- yield_prod %>%
+  rename(Item = Element)
+yield_prod <- long_to_wide(yield_prod)
+
+eu_nue <- read.csv("eu_nue.csv")
+
+eu_nue <- select(eu_nue, -Item)
+eu_nue <- eu_nue %>%
+  rename(Item = Element)
+
+eu_nue_wide <- long_to_wide(eu_nue)
+
+eu_yield_merged <- merge(yield_prod, eu_nue_wide)
+
+temp <- read.csv('temp_change_summer.csv') 
+```
+
+```{r}
+
+load("/Users/leonorbrito/Documents/Master/Thesis/Code/final_df.RData")
+load("/Users/leonorbrito/Documents/Master/Thesis/Code/transformed_df.RData")
+
+```
+
+# Study Area
+
+## Production v Land
+
+```{r}
+
+ggplot() +
+  # plot for cereal production
+  geom_point(data = area_prod_wide, aes(x = Year, y = Production, color = "Production Quantity (Mt)"), shape = 21, fill = "darkgreen", size = 3) +
+  geom_line(data = area_prod_wide, aes(x = Year, y = Production, color = "Production Quantity (Mt)"), size = 1) +
+  
+  # plot for area harvested with secondary y-axis
+  geom_point(data = area_prod_wide, aes(x = Year, y = `Area harvested`, color = "Area of production (Mha)"), shape = 18, size = 3) +
+  geom_line(data = area_prod_wide, aes(x = Year, y = `Area harvested`, color = "Area of production (Mha)"), size = 1) +
+  
+  # scale y-axis 
+  scale_y_continuous(
+    labels = label_number(scale = 1e-6) 
+  ) +
+  
+  # color palette
+  scale_color_manual(values = c("Production Quantity (Mt)" = "darkgreen", "Area of production (Mha)" = "red")) +
+
+  theme_minimal() + 
+  
+  labs(
+    x = "Year",
+    y = NULL,  
+    color = NULL  
+  ) +
+  
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text.y.left = element_text(color = "black"),
+    axis.text.y.right = element_text(color = "black"),
+    legend.position = "top",  
+    legend.title = element_blank(), 
+    legend.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "lightgrey", size = 0.25),
+    panel.grid.minor = element_line(color = "lightgrey", size = 0.25)
+  )
+
+ggsave("production_land.png", width = 8, height = 6, dpi = 300, bg = "white")
+
+```
+
+## Yield and NUE
+
+```{r}
+
+# plot 1: cereal yield trends
+p1 <- ggplot(eu_yield_merged, aes(x = Year, y = Yield)) +
+  geom_area(fill = "blue", alpha = 0.3) +  # Shaded area under the curve
+  geom_point(color = "blue", shape = 21, fill = "blue", size = 3) +
+  geom_line(color = "blue", size = 1) +
+  theme_minimal() +
+  labs(
+    title = NULL,
+    x = "Year",
+    y = "Yield (t/ha)"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "lightgrey", size = 0.25),
+    panel.grid.minor = element_line(color = "lightgrey", size = 0.25)
+  )
+
+# plot 2: NUE trends
+p2 <- ggplot(eu_yield_merged) +
+  # shaded area for entire period
+  geom_area(aes(x = Year, y = `Cropland nitrogen use efficiency`), fill = "darkgreen", alpha = 0.1) +
+  geom_area(aes(x = Year, y = `Cropland phosphorus use efficiency`), fill = "orange", alpha = 0.1) +
+  geom_area(aes(x = Year, y = `Cropland potassium use efficiency`), fill = "red", alpha = 0.1) +
+  # lines and points for the whole period
+  geom_point(aes(x = Year, y = `Cropland nitrogen use efficiency`, color = "Nitrogen use efficiency"), shape = 21, size = 3) +
+  geom_line(aes(x = Year, y = `Cropland nitrogen use efficiency`, color = "Nitrogen use efficiency"), size = 1) +
+  geom_point(aes(x = Year, y = `Cropland phosphorus use efficiency`, color = "Phosphorus use efficiency"), shape = 17, size = 3) +
+  geom_line(aes(x = Year, y = `Cropland phosphorus use efficiency`, color = "Phosphorus use efficiency"), size = 1) +
+  geom_point(aes(x = Year, y = `Cropland potassium use efficiency`, color = "Potassium use efficiency"), shape = 16, size = 3) +
+  geom_line(aes(x = Year, y = `Cropland potassium use efficiency`, color = "Potassium use efficiency"), size = 1) +
+  # highlight line at 2006
+  geom_vline(xintercept = 2006, linetype = "dashed", color = "black", size = 1) +
+  scale_color_manual(values = c(
+    "Nitrogen use efficiency" = "darkgreen",
+    "Phosphorus use efficiency" = "orange",
+    "Potassium use efficiency" = "red"
+  )) +
+  theme_minimal() +
+  labs(
+    title = NULL,
+    x = "Year",
+    y = "Nutrient Use Efficiency (%)"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 10),
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "lightgrey", size = 0.25),
+    panel.grid.minor = element_line(color = "lightgrey", size = 0.25)
+  )
+
+# combine the plots side by side 
+combined_plot <- p1 + p2
+combined_plot
+
+# save the combined plot
+ggsave("yield_and_nutrients_highlighted_line.png", plot = combined_plot, width = 14, height = 6, dpi = 300, bg = "white")
+
+```
+
+# Variables
+
+## Descriptive stats
+
+```{r}
+
+vars_df <- final_df[, 3:ncol(final_df)]
+
+# create an empty list to store results
+stats_list <- list()
+
+# list of statistics to calculate
+stats <- c("min", "Q1", "median", "Q3", "max", "mean", "sd")
+
+# function to calculate the desired statistics
+calc_stats <- function(x) {
+  c(
+    min = min(x, na.rm = TRUE),
+    Q1 = quantile(x, 0.25, na.rm = TRUE),
+    median = median(x, na.rm = TRUE),
+    Q3 = quantile(x, 0.75, na.rm = TRUE),
+    max = max(x, na.rm = TRUE),
+    mean = mean(x, na.rm = TRUE),
+    sd = sd(x, na.rm = TRUE)
+  )
+}
+
+
+# calculate statistics for each variable and store in list
+for (var in names(final_df)) {
+  stats_list[[var]] <- calc_stats(vars_df[[var]])
+}
+
+# combine the list into a data frame
+descriptive_stats <- do.call(rbind, stats_list)
+
+descriptive_stats %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "Variable") %>%
+  kable("html", caption = "Descriptive statistics of all variables") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+
+```
+
+## Transformations
+
+```{r}
+
+# define the plotting functions
+
+plot_transformations <- function(data, vars, plots_per_page = 5) {
+  total_vars <- length(vars)
+  total_pages <- ceiling(total_vars / plots_per_page)
+
+  
+  for (page in 1:total_pages) {
+    start_idx <- (page - 1) * plots_per_page + 1
+    end_idx <- min(page * plots_per_page, total_vars)
+    vars_subset <- vars[start_idx:end_idx]
+    
+    par(mfrow = c(length(vars_subset), 2), mar = c(3, 3, 2, 1), oma = c(2, 2, 2, 2))
+    
+    for (var in vars_subset) {
+      original <- data[[var$original]]
+      transformed <- data[[var$transformed]]
+      
+      # histogram for original data
+      hist(original, main = var$original_title, 
+           xlab = var$original, col = "grey", breaks = 30, cex.main=1.2)
+      
+      # histogram for transformed data
+      hist(transformed, main = var$transformed_title, 
+           xlab = var$trans_name, col = "blue", breaks = 30, cex.main=1.2)
+    }
+  } 
+}
+
+plot_boxplots <- function(data, vars, plots_per_page = 5) {
+  total_vars <- length(vars)
+  total_pages <- ceiling(total_vars / plots_per_page)
+  
+  for (page in 1:total_pages) {
+    start_idx <- (page - 1) * plots_per_page + 1
+    end_idx <- min(page * plots_per_page, total_vars)
+    vars_subset <- vars[start_idx:end_idx]
+    
+    par(mfrow = c(length(vars_subset), 2), mar = c(3, 3, 2, 1), oma = c(2, 2, 2, 2))
+    
+    for (var in vars_subset) {
+      original <- data[[var$original]]
+      transformed <- data[[var$transformed]]
+      
+      # boxplot for original data
+      boxplot(original, horizontal = TRUE, main = var$original_title, cex.main=1.2)
+      
+      # boxplot for transformed data
+      boxplot(transformed, horizontal = TRUE, main = var$transformed_title, cex.main=1.2)
+    }
+  }
+}
+
+
+vars <- list(
+  list(original = "manure_ch4", transformed = "log_manure", trans_name = "log(manure_ch4)",
+       original_title = "Manure Management", transformed_title = "Log Transformation",
+       original_boxplot_title = "Manure Management", transformed_boxplot_title = "Log Transformation"),
+  list(original = "enteric_fermentation", transformed = "sqrt_enteric", trans_name = "sqrt(enteric_fermentation)",
+       original_title = "Enteric Fermentation", transformed_title = "Square Root Transformation",
+       original_boxplot_title = "Enteric Fermentation", transformed_boxplot_title = "Square Root Transformation"),
+  list(original = "pesticides", transformed = "log_pesticides", trans_name = "log(pesticides)",
+       original_title = "Pesticide Use", transformed_title = "Log Transformation",
+       original_boxplot_title = "Pesticide Use", transformed_boxplot_title = "Log Transformation"),
+  list(original = "employment_ratio", transformed = "sqrt_employment", trans_name = "sqrt(employment_ratio)",
+       original_title = "Employment Ratio", transformed_title = "Square Root Transformation",
+       original_boxplot_title = "Employment Ratio", transformed_boxplot_title = "Square Root Transformation"),
+  list(original = "gdp_capita", transformed = "sqrt_gdp_capita", trans_name = "sqrt(gdp_capita)",
+       original_title = "GDP per Capita", transformed_title = "Square Root Transformation",
+       original_boxplot_title = "GDP per Capita", transformed_boxplot_title = "Square Root Transformation"),
+  list(original = "irrgation_efficiency", transformed = "sqrt_irrigation", trans_name = "sqrt(irrigation_efficiency)",
+       original_title = "Irrigation Efficiency", transformed_title = "Square Root Transformation",
+       original_boxplot_title = "Irrigation Efficiency", transformed_boxplot_title = "Square Root Transformation"),
+  list(original = "farm_energy_n20", transformed = "log_farm_energy_n20", trans_name = "log(farm_energy_n20)",
+       original_title = "On-Farm Energy Use", transformed_title = "Log Transformation",
+       original_boxplot_title = "On-Farm Energy Use", transformed_boxplot_title = "Log Transformation"),
+  list(original = "organic_ag", transformed = "sqrt_organic", trans_name = "sqrt(organic_ag)",
+       original_title = "Organic Agriculture", transformed_title = "Square Root Transformation",
+       original_boxplot_title = "Organic Agriculture", transformed_boxplot_title = "Square Root Transformation")
+)
+
+# save transformations as multiple PNG files for each window
+total_vars <- length(vars)
+total_pages <- ceiling(total_vars / 4)  # assuming 4 plots per page
+
+for (page in 1:total_pages) {
+  png(paste0("hists", page, ".png"), width = 1200, height = 800)
+  plot_transformations(transformed_df, vars, plots_per_page = 4)
+  dev.off()  # close the PNG device to save each page
+}
+
+# save boxplots as multiple PNG files for each window
+for (page in 1:total_pages) {
+  png(paste0("boxplots", page, ".png"), width = 1200, height = 800)
+  plot_boxplots(transformed_df, vars, plots_per_page = 4)
+  dev.off()  # close the PNG device to save each page
+}
+
+```
+
+## Temperature Chloropleth map
+
+```{r}
+
+# load country data
+eu_countries <- ne_countries(continent = "Europe", returnclass = "sf")
+
+# group by country (area) and calculate the average temperature change
+temp <- temp %>%
+  group_by(Area) %>%
+  mutate(Yearly_Avg_Change = mean(Value, na.rm = TRUE)) %>%
+  ungroup()
+
+# extract the average annual change for each country
+temp_avg <- temp %>%
+  group_by(Area) %>%
+  summarise(Average_Annual_Change = mean(Yearly_Avg_Change)) %>%
+  mutate(Area = str_replace(Area, "Netherlands \\(Kingdom of the\\)", "Netherlands"))
+
+# merge this data with the map data
+eu_temp_data <- merge(eu_countries, temp_avg, by.x = "name", by.y = "Area", all.x = TRUE)
+
+```
+
+```{r}
+
+# plot avg temp change on cloropleth map
+temp_chloropleth <- ggplot(data = eu_temp_data) +
+  geom_sf(aes(fill = Average_Annual_Change), color = "white", alpha = 0.8) +
+  scale_fill_gradientn(colors = c("#8B0000", "#A52A2A", "#FF8C00", "#FFEDA0"), 
+                       values = scales::rescale(c(1, 0.75, 0.5, 0)),
+                       name = "Temperature Change (°C)") +
+  labs(title = "") +
+  theme_minimal() +
+  coord_sf(xlim = c(-25, 28), ylim = c(35, 70)) +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank()
+  )
+
+temp_chloropleth
+
+ggsave("temp_change.png", plot = temp_chloropleth, width = 14, height = 6, dpi = 300, bg = "white")
+
+```
+
+
+# Results
+
+## Model comparison
+
+```{r}
+
+# Data for the heatmap
+heatmap_data <- data.frame(
+  Path = c("NutrientUseEfficiency", "Pesticide Use", "Precipitation", 
+           "AgriculturalEmissions", "Temperature Change", "GDP per capita", 
+           "Irrigation Efficiency", "Employment Ratio", "Organic Agriculture", 
+           "Pesticide Use (Indirect)", "Flood Occurrence (Indirect)", 
+           "Precipitation (Indirect)", "Organic Agriculture (Indirect)", 
+           "Pesticide Use (Total)", "Flood Occurrence (Total)", 
+           "Precipitation (Total)", "Organic Agriculture (Total)"),
+  Baseline_Model = c("<0.05", "<0.05", "<0.05", "<0.05", "<0.05", "<0.05", 
+                     "<0.05", "<0.05", "<0.05", "<0.05", "<0.05", "<0.05", 
+                     ">0.05", ">0.05", "<0.05", "<0.05", ">0.05"),
+  Adding_Year = c("<0.05", ">0.05", "<0.05", "<0.05", ">0.05", "<0.05", 
+                  "<0.05", "<0.05", "<0.05", "<0.05", "<0.05", ">0.05", 
+                  ">0.05", ">0.05", "<0.05", "<0.05", "<0.05"),
+  Time_Series_Residuals = c("<0.05", "<0.05", "<0.05", ">0.05", ">0.05", 
+                            "<0.05", "<0.05", "<0.05", "<0.05", "<0.05", 
+                            "<0.05", "<0.05", ">0.05", ">0.05", "<0.05", 
+                            ">0.05", ">0.05"),
+  Linear_Regression_Residuals = c("<0.05", ">0.05", "<0.05", "<0.05", 
+                                  ">0.05", "<0.05", "<0.05", "<0.05", 
+                                  "<0.05", "<0.05", "<0.05", "<0.05", 
+                                  ">0.05", ">0.05", "<0.05", "<0.05", "<0.05")
+)
+
+# Melt the data for ggplot2
+heatmap_data_melted <- melt(heatmap_data, id.vars = "Path")
+
+# Create the heatmap
+ggplot(heatmap_data_melted, aes(x = variable, y = Path, fill = value)) + 
+  geom_tile(color = "white") + 
+  geom_text(aes(label = value), color = "white", size = 3) + 
+  scale_fill_manual(values = c("<0.05" = "#4A90E2", ">0.05" = "#D0021B"), 
+                    labels = c("<0.05" = "<0.05", ">0.05" = ">0.05")) +
+  labs(title = "", 
+       x = "", 
+       y = "") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        legend.position = "none")
+
+ggsave("model_comparison.png", width = 14, height = 6, dpi = 300, bg = "white")
+
+
+```

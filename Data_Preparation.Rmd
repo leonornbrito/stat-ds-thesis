@@ -1,0 +1,319 @@
+---
+title: "Data Preparation"
+author: "Leonor Brito"
+date: "2024-09-16"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+
+```
+
+# Import data
+
+```{r}
+# function for importing and renaming columns
+import_and_clean_data <- function(file, 
+                                  rename_col = NULL, rename_to = NULL, 
+                                  filter_item = NULL, drop_item = NULL, 
+                                  filter_element = NULL, filter_year = NULL) {
+  
+  # import the dataset
+  df <- read.csv(file)
+  
+  # rename column if specified
+  if (!is.null(rename_col) && !is.null(rename_to)) {
+    df <- df %>% rename(!!rename_to := !!sym(rename_col))
+  }
+  
+  # filter rows based on Item values if specified
+  if (!is.null(filter_item)) {
+    df <- df %>% filter(Item %in% filter_item)
+  }
+  
+  # drop specific Item rows if specified
+  if (!is.null(drop_item)) {
+    df <- df %>% filter(!Item %in% drop_item)
+  }
+  
+  # filter rows based on Element values if specified
+  if (!is.null(filter_element)) {
+    df <- df %>% filter(Element %in% filter_element)
+  }
+  
+  # filter rows based on Year if specified
+  if (!is.null(filter_year)) {
+    df <- df %>% filter(Year >= filter_year)
+  }
+
+  return(df)
+}
+
+```
+
+Import all datasets using function above (note: a lot of these datasets were not used in the final model.) All datasets below were sourced from FAOSTAT (https://www.fao.org/faostat/en/#data) and AQUASTAT (https://data.apps.fao.org/aquastat). 
+```{r}
+
+# set import directory
+setwd("/Users/leonorbrito/Documents/Master/Thesis/Datasets")
+
+# Yield (outcome variable)
+yield <- import_and_clean_data("yield.csv")
+
+# Socioeconomic data
+credit <- import_and_clean_data("credit.csv")
+employment <- import_and_clean_data("employment2.csv", rename_col = "Indicator", rename_to = "Item")
+gdp_capita <- import_and_clean_data("gdp_capita.csv")
+capital_stock <- import_and_clean_data("capital_stocks.csv")
+
+# Environmental data
+emissions <- import_and_clean_data("emissions.csv", drop_item = c("Drained organic soils (CO2)", "Drained organic soils (N2O)"))
+temp_change <- import_and_clean_data("temp_change.csv", rename_col = "Element", rename_to = "Item")
+aquastat <- readxl::read_excel('aquastat.xls')  # Imported as Excel file
+LULUCF <- import_and_clean_data("LULUCF.csv", filter_item = c("Net Forest conversion"))
+
+# Agricultural data
+land_use <- import_and_clean_data("land_use.csv", drop_item = c("Agriculture area actually irrigated"))
+pesticide_use <- import_and_clean_data("pesticide_use.csv")
+irrigation <- import_and_clean_data("irrigation.csv")
+
+# NUE data
+nue <- import_and_clean_data("nue.csv", filter_element = c("Cropland nitrogen use efficiency", "Cropland phosphorus use efficiency", "Cropland potassium use efficiency"))
+nue <- nue %>% select(-Item) %>% rename(Item = Element)
+
+# Metadata
+metadata <- import_and_clean_data("metadata.csv")
+
+# Additional datasets 
+pesticides <- import_and_clean_data("pesticides_added.csv")
+expenditure <- import_and_clean_data("expenditure.csv")
+emissions_new <- import_and_clean_data("emissions_added.csv")
+emissions_added <- emissions_new %>%
+  mutate(Element_Item = paste(Item, Element, sep = " - ")) %>%
+  select(-c(Element, Item)) %>%
+  rename(Item = Element_Item)
+aquastat_added <- import_and_clean_data("aquastat_added.csv", rename_col = "Variable", rename_to = "Item") # sourced from AQUASTAT
+labour <- import_and_clean_data("labour.csv", rename_col = "Indicator", rename_to = "Item")
+investment <- import_and_clean_data("investment.csv")
+livestock <- import_and_clean_data("livestock.csv")
+
+# Livestock products
+livestock_products <- read.csv('livestock_products.csv')
+livestock_products <- aggregate(Value ~ Area + Year, data = livestock_products, sum)
+livestock_products$Item <- "Yield"
+
+# Additional data
+yields <- import_and_clean_data("yield_details.csv")
+gdp <- import_and_clean_data("gdp.csv")
+
+```
+
+# Data Prep
+
+Function to change from long to wide format
+```{r}
+
+long_to_wide <- function(data) {
+  wide_data <- pivot_wider(data, 
+                           names_from = Item, 
+                           values_from = Value, 
+                           id_cols = c(Area, Year))
+  return(wide_data)
+}
+
+```
+
+Convert long to wide
+```{r}
+
+credit_wide <- long_to_wide(credit)
+emissions_wide <- long_to_wide(emissions)
+LULUCF_wide <- long_to_wide(LULUCF)
+employment_wide <- long_to_wide(employment)
+gdp_capita_wide <- long_to_wide(gdp_capita)
+land_use_wide <- long_to_wide(land_use)
+pesticide_use_wide <- long_to_wide(pesticide_use)
+temp_change_wide <- long_to_wide(temp_change)
+irrigation_wide <- long_to_wide(irrigation)
+capital_stock_wide <- long_to_wide(capital_stock)
+nue_wide <- long_to_wide(nue)
+yield_wide <- long_to_wide(yield)
+pesticides_wide <- long_to_wide(pesticides)
+emissions_added_wide <- long_to_wide(emissions_added)
+aquastat_added_wide <- long_to_wide(aquastat_added)
+labour_wide <- long_to_wide(labour)
+investment_wide <- long_to_wide(investment)
+livestock_wide <- long_to_wide(livestock)
+yields_wide <- long_to_wide(yields)
+gdp_wide <- long_to_wide(gdp)
+livestock_products_wide <- long_to_wide(livestock_products)
+
+```
+
+## Combine datasets
+
+```{r}
+
+combined_data <- yield_wide %>%
+  left_join(yields_wide, by = c("Area", "Year")) %>%
+  left_join(emissions_wide, by = c("Area", "Year")) %>%
+  left_join(employment_wide, by = c("Area", "Year")) %>%
+  left_join(gdp_capita_wide, by = c("Area", "Year")) %>%
+  left_join(land_use_wide, by = c("Area", "Year")) %>%
+  left_join(pesticide_use_wide, by = c("Area", "Year")) %>%
+  left_join(temp_change_wide, by = c("Area", "Year")) %>%
+  left_join(irrigation_wide, by = c("Area", "Year")) %>%
+  left_join(capital_stock_wide, by = c("Area", "Year")) %>%
+  left_join(nue_wide, by = c("Area", "Year")) %>%
+  left_join(LULUCF_wide, by = c("Area", "Year")) %>%
+  left_join(aquastat, by = "Area") %>%
+  left_join(pesticides_wide, by = c("Area", "Year")) %>%
+  left_join(emissions_added_wide, by = c("Area", "Year")) %>%
+  left_join(aquastat_added_wide, by = c("Area", "Year")) %>%
+  left_join(labour_wide, by = c("Area", "Year")) %>%
+  left_join(investment_wide, by = c("Area", "Year")) %>%
+  left_join(livestock_wide, by = c("Area", "Year")) %>%
+  left_join(gdp_wide, by = c("Area", "Year")) %>%
+  left_join(livestock_products_wide, by = c("Area", "Year"))
+
+```
+
+```{r}
+
+# rename variables/columns
+colnames(combined_data) <- c("area", "year", "cereal_yield", "barley_yield", "maize_yield", "wheat_yield","burning_residues", "drained_soils", 
+  "employment_ag", "gdp_capita", "arable_land",
+  "perm_meadows", "organic_ag", "pesticides", 
+  "temp_change", "irrigation", "capital_stocks", 
+  "nue", "pue", "kue", "forest_conv", "floods", 
+  "percipitation", "insecticides", "herbicides",
+  "fungicides", "rodenticides", "burning_residues_ch4", 
+  "burning_residues_n20", "enteric_fermentation",
+  "manure_ch4", "manure_direct", "manure_n20_direct", 
+  "drained_soils_co2", "drained_soils_n20", 
+  "farm_energy_ch4","farm_energy_n20", "farm_energy_co2",
+  "rice_cultivation", "irrigation_equipped", "irrigated", 
+  "grain_irrigation", "renewable_water_withdrawal", 
+  "irrgation_efficiency", "water_efficiency", "water_withdrawal",
+  "employment_rural", "labour", "employment_ratio", "employment_share",
+  "FDI_inflows", "FDI_outflows", "livestock", "gdp", "livestock_products")
+
+```
+
+## Region Mapping
+```{r}
+
+# filter metadata to show only country code 5101 (EU countries)
+filtered_metadata <- metadata %>%
+  filter(Country.Group.Code == 5707)
+
+# join the metadata with the combined_data
+combined_data_region <- combined_data %>%
+  right_join(filtered_metadata %>% select(Country, Country.Group.Code, Country.Group), by = c("area" = "Country"))
+
+```
+
+# Missing Data
+
+```{r}
+
+# check what variables are missing entirely for a given country
+list_missing_by_country <- lapply(names(combined_data_region)[-1], function(var) {
+  combined_data_region %>%
+    group_by(area) %>%
+    summarise(All_Missing = all(is.na(.data[[var]])), .groups = 'drop') %>%
+    filter(All_Missing) %>%
+    select(area) %>%
+    mutate(Variable = var)
+})
+
+missing_by_country <- bind_rows(list_missing_by_country)
+
+# print missing variables 
+missing_by_country
+
+```
+
+## Visualize missingness
+
+```{r}
+
+# reshape dataset from wide to long format
+df_long <- pivot_longer(
+  combined_data_region,
+  cols = -c(area, year, Country.Group, Country.Group.Code),
+  names_to = "Variable",
+  values_to = "Value"
+)
+
+# calculate the percentage of missing data per area (country) and year
+percentage_missing <- df_long %>%
+  group_by(area, year) %>%
+  dplyr::summarize(Percent_Missing = mean(is.na(Value)) * 100) %>%
+  ungroup()  
+
+# create a heatmap using ggplot2
+heatmap_plot <- ggplot(percentage_missing, aes(x = year, y = area, fill = Percent_Missing)) +
+  geom_tile() + 
+  scale_fill_gradient(low = "green", high = "red", name = "Percent Missing",
+                      limits = c(0, 25)) +  
+  theme_minimal() +
+  labs(title = "Heatmap of Missing Data by Country and Year",
+       x = "Year",
+       y = "Country")
+
+print(heatmap_plot)
+
+```
+
+```{r}
+
+df_long <- gather(combined_data_region, key = "Variable", value = "Value", -area, -year, -Country.Group, -Country.Group.Code)
+
+# calculate the percentage of missing data per year per variable
+df_missing <- df_long %>%
+  group_by(year, Variable) %>%
+  dplyr::summarize(Percent_Missing = mean(is.na(Value)) * 100, .groups = 'drop')
+
+# plot the time series of missing data percentage for each variable
+ggplot(df_missing, aes(x = year, y = Percent_Missing, group = Variable)) +
+  geom_line() +  
+  facet_wrap(~ Variable, scales = "fixed") +  
+  labs(title = "Time Series of Missing Data by Variable",
+       x = "Year",
+       y = "Percentage Missing") +
+  theme_minimal()  
+
+```
+
+## Remove missing
+
+Filter from 2005-2020
+Remove Malta, Luxembourg and Ireland
+Remove rodenticides and grain irrigation variables
+```{r}
+
+clean_df <- subset(combined_data_region,
+                   year >= 2006 & year <= 2020 & 
+                   !area %in% c("Malta", "Belgium-Luxembourg"),
+                   select = -c(grain_irrigation, rice_cultivation, FDI_inflows, FDI_outflows, employment_share, irrigation, rodenticides, maize_yield))
+
+```
+
+
+
+```{r}
+
+save(clean_df, file = "clean_df.RData")
+
+```
+

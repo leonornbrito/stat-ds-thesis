@@ -1,0 +1,219 @@
+---
+title: "Exploratory Data Analysis"
+author: "Leonor Brito"
+date: "2024-09-16"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+```{r}
+
+library(lavaan)
+library(corrplot)
+library(Hmisc)
+library(ggplot2)
+library(purrr)
+library(dplyr)
+
+```
+
+# Exploratory Data Analysis
+
+```{r}
+
+load("/Users/leonorbrito/Documents/Master/Thesis/Code/clean_df.RData")
+
+```
+
+
+## Correlation
+
+First, a correlation matrix was created using all potentially relevant variables. 
+```{r}
+
+all_vars <- clean_df[, 3:(ncol(clean_df) - 2)]
+
+corr_results <- rcorr(as.matrix(all_vars))
+
+# access the matrix of correlation coefficients
+cor_matrix <- corr_results$r
+
+# access the matrix of p-values
+p_matrix <- corr_results$P
+
+# visualize the correlation matrix
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.6, number.cex = 0.5, addCoef.col = "black")
+
+# create a correlation plot with significance masking
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, sig.level = 0.05, insig = "blank", addCoef.col = "black", number.cex = 0.5, tl.cex = 0.6)
+
+```
+
+## Normality / Outlier Detection
+
+```{r}
+
+# function to create histogram for each variable to check for normality/skewness
+plot_distribution <- function(data, variable_name) {
+  p1 <- ggplot(data, aes_string(x = variable_name)) + 
+        geom_histogram(bins = 30, fill = "blue", alpha = 0.7) +
+        ggtitle(paste("Histogram of", variable_name))
+
+  # print histogram
+  print(p1)
+}
+
+apply_checks <- function(data) {
+  numeric_columns <- sapply(data, is.numeric)  # Identify numeric columns
+  for (variable_name in names(numeric_columns[numeric_columns])) {
+    plot_distribution(data, variable_name)     # Plot histograms for each variable
+  }
+}
+
+# apply normality check for all variables
+apply_checks(all_vars)
+
+```
+
+
+Together with the findings of the correlation matrix and the normality checks, a few different SEM model structures were explored to experiment with various combinations of variables, relationships and their impact on model fit. This was purely experimental and provided insights into what variables to consider / which ones to remove from the study to avoid multi-collinearity and skewed data. 
+
+## Experimental model structures
+
+Scaling
+
+```{r}
+
+data_sem <- clean_df[, !(names(clean_df) %in% c("Country.Group.Code", "Country.Group", "gdp_category"))]
+country_data <- data_sem[,c("area"), drop = FALSE]
+data_to_scale <- data_sem[, !(names(data_sem) %in% c("area"))]
+data_scaled <- as.data.frame(lapply(data_to_scale, scale))
+
+data_for_sem <- cbind(data_scaled, country_data)
+
+```
+
+
+```{r}
+
+# model 1: includes one latent variable (NUE)
+
+model_1 <- '
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  cereal_yield ~ NutrientUseEfficiency + pesticides + percipitation + gdp_capita + temp_change + irrgation_efficiency
+  NutrientUseEfficiency ~ pesticides + burning_residues
+'
+
+# fit the model
+fit_model_1 <- sem(model_1, data = data_for_sem, cluster = 'area', missing = "fiml")
+summary(fit_model_1, fit.measures=TRUE)
+
+```
+
+```{r}
+
+## model 2: adding more pesticide types (herbicides, fungicides, etc.) influencing cereal yield and NUE
+model_2 <- '
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  cereal_yield ~ NutrientUseEfficiency + gdp_capita + irrgation_efficiency + percipitation + herbicides + fungicides + rodenticides + manure_direct
+  NutrientUseEfficiency ~ insecticides + fungicides + burning_residues_n20 + manure_direct + enteric_fermentation
+'
+
+# fit the model
+fit_model_2 <- sem(model_2, data = data_for_sem, cluster = 'area', missing = "fiml")
+summary(fit_model_2, fit.measures=TRUE)
+
+```
+
+```{r}
+
+# model 3: simplifies pesticide types influencing cereal yield, focusing on herbicides
+model_3 <- '
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  cereal_yield ~ NutrientUseEfficiency + gdp_capita + irrgation_efficiency + percipitation + herbicides
+  NutrientUseEfficiency ~ burning_residues_n20 + manure_direct
+'
+
+# fit the model
+fit_model_3 <- sem(model_3, data = data_for_sem, cluster = 'area', missing = "fiml")
+summary(fit_model_3, fit.measures=TRUE)
+
+```
+
+```{r}
+
+# model 4: adding two new latent variables, WaterUse and AgriculturalEmissions with a direct effect on yield
+model_4 <- '
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  WaterUse =~ 1*water_withdrawal + irrgation_efficiency + renewable_water_withdrawal
+  AgriculturalEmissions =~ 1*manure_direct + farm_energy_n20 + enteric_fermentation
+  cereal_yield ~ NutrientUseEfficiency + pesticides + gdp_capita + WaterUse + AgriculturalEmissions + percipitation + temp_change
+  NutrientUseEfficiency ~ pesticides + floods + percipitation
+'
+
+# fit the model
+fit_model_4 <- sem(model_4, data = data_for_sem, cluster = 'area', missing = "fiml")
+summary(fit_model_4, fit.measures=TRUE)
+
+```
+
+```{r}
+
+# model 5: adding Economy as a new latent variable affecting cereal yield along with WaterUse and Agricultural Emissions
+model_5 <- '
+  NutrientUseEfficiency =~ 1*nue + pue + kue
+  WaterUse =~ 1*water_withdrawal + irrgation_efficiency + renewable_water_withdrawal
+  AgriculturalEmissions =~ 1*manure_direct + farm_energy_n20 + enteric_fermentation
+  Economy =~ 1*gdp_capita + labour + employment_ratio
+  cereal_yield ~ NutrientUseEfficiency + pesticides + Economy + WaterUse + AgriculturalEmissions + percipitation + temp_change
+  NutrientUseEfficiency ~ pesticides + floods + percipitation
+'
+
+# fit the model
+fit_model_5 <- sem(model_5, data = data_for_sem, cluster = 'area', missing = "fiml")
+summary(fit_model_5, fit.measures=TRUE)
+
+
+```
+
+```{r}
+
+# model 6: focusing on Agricultural Emissions and Water Use as latent variables influencing cereal yield and NUE
+model_6 <- '
+  NutrientUseEfficiency =~ nue + pue + kue
+  AgriculturalEmissions =~ 1*burning_residues + manure_direct + farm_energy_n20 + enteric_fermentation
+  cereal_yield ~ NutrientUseEfficiency + pesticides + gdp_capita + irrgation_efficiency + AgriculturalEmissions + percipitation + temp_change
+  NutrientUseEfficiency ~ pesticides + floods + percipitation
+'
+
+# fit the model
+fit_model_6 <- sem(model_6, data = data_for_sem, cluster = 'area', missing = "fiml")
+summary(fit_model_6, fit.measures=TRUE)
+
+
+```
+
+```{r}
+
+# model 8: adding year and employment ratio to the structure, testing temporal effects on yield and NUE
+model_7 <- '
+  NutrientUseEfficiency =~ 1*nue + pue + log_kue
+  AgriculturalEmissions =~ 1*manure_direct + log_farm_energy_n20 + log_enteric_fermentation
+  cereal_yield ~ NutrientUseEfficiency + pesticides + gdp_capita + water_withdrawal + percipitation + AgriculturalEmissions + employment_ratio + temp_change + year
+  NutrientUseEfficiency ~ pesticides + floods + percipitation + year
+'
+
+# fit the model
+fit_model_7 <- sem(model_7, data = data_for_sem, cluster = 'area', missing = "fiml", estimator = "MLR")
+summary(fit_model_7, fit.measures=TRUE)
+
+
+```
+
+
