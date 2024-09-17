@@ -43,22 +43,21 @@ long_to_wide <- function(data) {
 All datasets below were sourced from FAOSTAT (https://www.fao.org/faostat/en/#data).
 ```{r}
 
-setwd("/Users/leonorbrito/Documents/Master/Thesis/Datasets/Visuals")
-area_prod <- read.csv('prod_area.csv')
+area_prod <- read.csv('data/prod_area.csv')
 
 area_prod <- select(area_prod, -Item)
 area_prod <- area_prod %>%
   rename(Item = Element)
 area_prod_wide <- long_to_wide(area_prod)
 
-yield_prod <- read.csv('yield_prod.csv')
+yield_prod <- read.csv('data/yield_prod.csv')
 
 yield_prod <- select(yield_prod, -Item)
 yield_prod <- yield_prod %>%
   rename(Item = Element)
 yield_prod <- long_to_wide(yield_prod)
 
-eu_nue <- read.csv("eu_nue.csv")
+eu_nue <- read.csv("data/eu_nue.csv")
 
 eu_nue <- select(eu_nue, -Item)
 eu_nue <- eu_nue %>%
@@ -68,7 +67,7 @@ eu_nue_wide <- long_to_wide(eu_nue)
 
 eu_yield_merged <- merge(yield_prod, eu_nue_wide)
 
-temp <- read.csv('temp_change_summer.csv') 
+temp <- read.csv('data/temp_change_summer.csv') 
 ```
 
 ```{r}

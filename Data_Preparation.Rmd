@@ -63,57 +63,54 @@ import_and_clean_data <- function(file,
 Import all datasets using function above (note: a lot of these datasets were not used in the final model.) All datasets below were sourced from FAOSTAT (https://www.fao.org/faostat/en/#data) and AQUASTAT (https://data.apps.fao.org/aquastat). 
 ```{r}
 
-# set import directory
-setwd("/Users/leonorbrito/Documents/Master/Thesis/Datasets")
-
 # Yield (outcome variable)
-yield <- import_and_clean_data("yield.csv")
+yield <- import_and_clean_data("data/yield.csv")
 
 # Socioeconomic data
-credit <- import_and_clean_data("credit.csv")
-employment <- import_and_clean_data("employment2.csv", rename_col = "Indicator", rename_to = "Item")
-gdp_capita <- import_and_clean_data("gdp_capita.csv")
-capital_stock <- import_and_clean_data("capital_stocks.csv")
+credit <- import_and_clean_data("data/credit.csv")
+employment <- import_and_clean_data("data/employment2.csv", rename_col = "Indicator", rename_to = "Item")
+gdp_capita <- import_and_clean_data("data/gdp_capita.csv")
+capital_stock <- import_and_clean_data("data/capital_stocks.csv")
 
 # Environmental data
-emissions <- import_and_clean_data("emissions.csv", drop_item = c("Drained organic soils (CO2)", "Drained organic soils (N2O)"))
-temp_change <- import_and_clean_data("temp_change.csv", rename_col = "Element", rename_to = "Item")
-aquastat <- readxl::read_excel('aquastat.xls')  # Imported as Excel file
-LULUCF <- import_and_clean_data("LULUCF.csv", filter_item = c("Net Forest conversion"))
+emissions <- import_and_clean_data("data/emissions.csv", drop_item = c("Drained organic soils (CO2)", "Drained organic soils (N2O)"))
+temp_change <- import_and_clean_data("data/temp_change.csv", rename_col = "Element", rename_to = "Item")
+aquastat <- readxl::read_excel('data/aquastat.xls')  # Imported as Excel file
+LULUCF <- import_and_clean_data("data/LULUCF.csv", filter_item = c("Net Forest conversion"))
 
 # Agricultural data
-land_use <- import_and_clean_data("land_use.csv", drop_item = c("Agriculture area actually irrigated"))
-pesticide_use <- import_and_clean_data("pesticide_use.csv")
-irrigation <- import_and_clean_data("irrigation.csv")
+land_use <- import_and_clean_data("data/land_use.csv", drop_item = c("Agriculture area actually irrigated"))
+pesticide_use <- import_and_clean_data("data/pesticide_use.csv")
+irrigation <- import_and_clean_data("data/irrigation.csv")
 
 # NUE data
-nue <- import_and_clean_data("nue.csv", filter_element = c("Cropland nitrogen use efficiency", "Cropland phosphorus use efficiency", "Cropland potassium use efficiency"))
+nue <- import_and_clean_data("data/nue.csv", filter_element = c("Cropland nitrogen use efficiency", "Cropland phosphorus use efficiency", "Cropland potassium use efficiency"))
 nue <- nue %>% select(-Item) %>% rename(Item = Element)
 
 # Metadata
-metadata <- import_and_clean_data("metadata.csv")
+metadata <- import_and_clean_data("data/metadata.csv")
 
 # Additional datasets 
-pesticides <- import_and_clean_data("pesticides_added.csv")
-expenditure <- import_and_clean_data("expenditure.csv")
-emissions_new <- import_and_clean_data("emissions_added.csv")
+pesticides <- import_and_clean_data("data/pesticides_added.csv")
+expenditure <- import_and_clean_data("data/expenditure.csv")
+emissions_new <- import_and_clean_data("data/emissions_added.csv")
 emissions_added <- emissions_new %>%
   mutate(Element_Item = paste(Item, Element, sep = " - ")) %>%
   select(-c(Element, Item)) %>%
   rename(Item = Element_Item)
-aquastat_added <- import_and_clean_data("aquastat_added.csv", rename_col = "Variable", rename_to = "Item") # sourced from AQUASTAT
-labour <- import_and_clean_data("labour.csv", rename_col = "Indicator", rename_to = "Item")
-investment <- import_and_clean_data("investment.csv")
-livestock <- import_and_clean_data("livestock.csv")
+aquastat_added <- import_and_clean_data("data/aquastat_added.csv", rename_col = "Variable", rename_to = "Item") # sourced from AQUASTAT
+labour <- import_and_clean_data("data/labour.csv", rename_col = "Indicator", rename_to = "Item")
+investment <- import_and_clean_data("data/investment.csv")
+livestock <- import_and_clean_data("data/livestock.csv")
 
 # Livestock products
-livestock_products <- read.csv('livestock_products.csv')
+livestock_products <- read.csv('data/livestock_products.csv')
 livestock_products <- aggregate(Value ~ Area + Year, data = livestock_products, sum)
 livestock_products$Item <- "Yield"
 
 # Additional data
-yields <- import_and_clean_data("yield_details.csv")
-gdp <- import_and_clean_data("gdp.csv")
+yields <- import_and_clean_data("data/yield_details.csv")
+gdp <- import_and_clean_data("data/gdp.csv")
 
 ```
 
