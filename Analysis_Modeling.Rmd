@@ -250,7 +250,7 @@ baseline_model <- '
 
   # Measurement Model
   NutrientUseEfficiency =~ 1*nue + pue + kue
-  AgriculturalEmissions =~ 1*log_manure + sqrt_enteric
+  AgriculturalEmissions =~ 1*log_manure + sqrt_enteric + log_farm_energy_n20
   
   # Structural Model
   # Direct effects
@@ -461,5 +461,218 @@ Likelihood Ratio Test (LRT) to compare multiple SEM models
 
 comparison <- lavTestLRT(fit_baseline_model, fit_model_arima, fit_model_reg, fit_model_year)
 print(comparison)
+
+```
+
+
+---
+
+The following code was NOT USED OR PURSUED in this study. It represents a potential approach to multi-level SEM modeling that was unsuccessful. I have left some of the work here below as I refer to it in the Discussion as part of future work.
+
+The idea was to split the data into 2 (or more) time periods, and build two SEM models: 
+1. Free model: in this model, two SEM structures are built for each time period. For each time period, the variables have different coefficients. This assumes that each variable has a difference effect on yield before 2006 and after 2006 (i.e. time is important)
+2. Constrained model: in this model, two SEM structures are built for each time period, but for each time period, the variables have the same coefficients. This assumes that time does not influence the effects of each variable on yield.
+
+The two models can be compared using Likelihood Ratio test to see which one performs best with the data.
+
+Split data into 2 time periods 
+```{r}
+
+final_df <- final_df %>%
+  mutate(time_period = ifelse(year %in% 2006:2013, "t1", "t2"))
+
+# relevant variables excluding floods and percipitation
+relevant_vars <- c("nue", "pue", "kue", "manure_direct", "farm_energy_n20", "enteric_fermentation",
+                   "pesticides", "gdp_capita", "temp_change", "employment_ratio", "water_withdrawal", "cereal_yield")
+
+# aggregate data by country, time period, and the relevant variables
+DF <- final_df %>%
+  select(area, time_period, all_of(relevant_vars), floods, percipitation) %>%
+  group_by(area, time_period) %>%
+  summarise(across(.cols = all_of(relevant_vars), .fns = list(mean = mean, sd = sd), na.rm = TRUE),
+            floods = first(floods), percipitation = first(percipitation),
+            .groups = 'drop')
+
+# check for duplicates
+duplicates <- DF %>%
+  group_by(area, time_period) %>%
+  filter(n() > 1)
+
+if(nrow(duplicates) > 0) {
+  print("Duplicates found:")
+  print(duplicates)
+} else {
+  print("No duplicates found.")
+}
+
+DF_wide <- DF %>%
+  pivot_wider(names_from = time_period, values_from = -c(area, time_period), names_sep = "_")
+
+print(names(DF_wide))
+
+head(DF_wide)
+
+```
+
+```{r}
+
+set.seed(123) 
+
+# function to simulate data based on mean and standard deviation
+simulate_data <- function(mean_df, num_samples) {
+  simulated_data <- data.frame()
+  
+  for (i in 1:nrow(mean_df)) {
+    # extracting columns for time period t1 and t2 directly by names
+    mean_t1 <- mean_df[i, which(grepl("_t1_mean$", names(mean_df)))]
+    std_t1 <- mean_df[i, which(grepl("_t1_sd$", names(mean_df)))]
+    mean_t2 <- mean_df[i, which(grepl("_t2_mean$", names(mean_df)))]
+    std_t2 <- mean_df[i, which(grepl("_t2_sd$", names(mean_df)))]
+    
+    mean_t1 <- as.numeric(mean_t1)
+    std_t1 <- as.numeric(std_t1)
+    mean_t2 <- as.numeric(mean_t2)
+    std_t2 <- as.numeric(std_t2)
+    
+    # extracting base names for the columns
+    mean_names_t1 <- sub("_t1_mean$", "", names(mean_df)[which(grepl("_t1_mean$", names(mean_df)))])
+    mean_names_t2 <- sub("_t2_mean$", "", names(mean_df)[which(grepl("_t2_mean$", names(mean_df)))])
+    
+    country <- mean_df$area[i]
+    
+    # simulate data for time period t1
+    data_t1 <- data.frame(matrix(nrow = num_samples, ncol = length(mean_t1)))
+    colnames(data_t1) <- paste0(mean_names_t1, "_t1")
+    for (j in seq_along(mean_t1)) {
+      data_t1[, j] <- rnorm(num_samples, mean = mean_t1[j], sd = std_t1[j])
+    }
+    
+    # simulate data for time period t2
+    data_t2 <- data.frame(matrix(nrow = num_samples, ncol = length(mean_t2)))
+    colnames(data_t2) <- paste0(mean_names_t2, "_t2")
+    for (j in seq_along(mean_t2)) {
+      data_t2[, j] <- rnorm(num_samples, mean = mean_t2[j], sd = std_t2[j])
+    }
+    
+    # combine the data for both periods
+    combined_data <- cbind(data_t1, data_t2)
+    combined_data$area <- country
+    
+    # add back floods and percipitation with the same values for each country
+    combined_data$floods <- mean_df$floods_t1[i]
+    combined_data$percipitation <- mean_df$percipitation_t1[i]
+    
+    simulated_data <- rbind(simulated_data, combined_data)
+  }
+  return(simulated_data)
+}
+
+# simulate data
+simulated_data <- simulate_data(DF_wide, 15)  # 15 observations per country
+
+head(simulated_data)
+
+```
+
+
+```{r}
+
+data_scaled_ml <- as.data.frame(lapply(DF[, !(names(DF) %in% c("area"))], scale))
+
+```
+
+Free Model
+```{r}
+
+# free model with unique coefficients for each time period
+model_free <- '
+  # Time 1
+  # Latent variables
+  NutrientUseEfficiency_t1 =~ nue_t1 + pue_t1 + kue_t1
+  AgriculturalEmissions_t1 =~ manure_direct_t1 + farm_energy_n20_t1 + enteric_fermentation_t1
+  
+  # Direct effects
+  cereal_yield_t1 ~ c1*NutrientUseEfficiency_t1 + c2*pesticides_t1 + c3*gdp_capita_t1 + c4*AgriculturalEmissions_t1 + c5*percipitation_t1 + c6*temp_change_t1 + c7*employment_ratio_t1 + c8*water_withdrawal_t1
+  
+  # Mediator paths
+  NutrientUseEfficiency_t1 ~ a1*pesticides_t1
+  
+  # Indirect effect calculations for mediated paths
+  indirect1_t1 := a1*c1
+  indirect2_t1 := a2*c1
+  indirect3_t1 := a3*c1
+  total_effect_t1 := c1 + indirect1_t1 + indirect2_t1 + indirect3_t1
+  
+  # Time 2
+  # Latent variables
+  NutrientUseEfficiency_t2 =~ nue_t2 + pue_t2 + kue_t2
+  AgriculturalEmissions_t2 =~ manure_direct_t2 + farm_energy_n20_t2 + enteric_fermentation_t2
+  
+  # Direct effects
+  cereal_yield_t2 ~ d1*NutrientUseEfficiency_t2 + d2*pesticides_t2 + d3*gdp_capita_t2 + d4*AgriculturalEmissions_t2 + d5*percipitation_t2 + d6*temp_change_t2 + d7*employment_ratio_t2 + d8*water_withdrawal_t2
+  
+  # Mediator paths
+  NutrientUseEfficiency_t2 ~ e1*pesticides_t2 + e2*floods_t2 + e3*percipitation_t2
+  
+  # Indirect effect calculations for mediated paths
+  indirect1_t2 := e1*d1
+  indirect2_t2 := e2*d1
+  indirect3_t2 := e3*d1
+  total_effect_t2 := d1 + indirect1_t2 + indirect2_t2 + indirect3_t2
+  
+'
+
+fit_free <- sem(model_free, data = data_scaled_ml)
+
+```
+
+Constrained model
+```{r}
+
+# Constrained model with common coefficients across both time periods
+model_constrained <- '
+  # Time 1
+  # Latent variables
+  NutrientUseEfficiency_t1 =~ nue_t1 + pue_t1 + kue_t1
+  AgriculturalEmissions_t1 =~ manure_direct_t1 + farm_energy_n20_t1 + enteric_fermentation_t1
+  
+  # Direct effects
+  cereal_yield_t1 ~ c*NutrientUseEfficiency_t1 + d*pesticides_t1 + e*gdp_capita_t1 + f*AgriculturalEmissions_t1 + g*percipitation_t1 + h*temp_change_t1 + i*employment_ratio_t1 + j*water_withdrawal_t1
+  
+  # Mediator paths
+  NutrientUseEfficiency_t1 ~ k*pesticides_t1 + l*floods_t1 + m*percipitation_t1
+  
+  # Indirect effects through Nutrient Use Efficiency
+  indirect_cereal_yield_t1 := (k*c) + (l*c) + (m*c)
+
+  # Total effect
+  total_effect_t1 := c + indirect_cereal_yield_t1
+  
+  # Time 2
+  # Using the same structure as Time 1
+  NutrientUseEfficiency_t2 =~ nue_t2 + pue_t2 + kue_t2
+  AgriculturalEmissions_t2 =~ manure_direct_t2 + farm_energy_n20_t2 + enteric_fermentation_t2
+  
+  # Direct effects are constrained to be the same as Time 1
+  cereal_yield_t2 ~ c*NutrientUseEfficiency_t2 + d*pesticides_t2 + e*gdp_capita_t2 + f*AgriculturalEmissions_t2 + g*percipitation_t2 + h*temp_change_t2 + i*employment_ratio_t2 + j*water_withdrawal_t2
+  
+  # Mediator paths are identical
+  NutrientUseEfficiency_t2 ~ k*pesticides_t2 + l*floods_t2 + m*percipitation_t2
+  
+  # Indirect effects through Nutrient Use Efficiency
+  indirect_cereal_yield_t2 := (k*c) + (l*c) + (m*c)
+
+  # Total effect
+  total_effect_t2 := c + indirect_cereal_yield_t2
+'
+
+fit_constrained <- sem(model_constrained, data = data_scaled_ml)
+
+```
+
+```{r}
+
+multi_comparison <- lavTestLRT(fit_free, fit_constrained)
+print(multi_comparison)
 
 ```
